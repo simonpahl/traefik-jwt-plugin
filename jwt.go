@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -25,6 +26,8 @@ import (
 	"strings"
 	"time"
 )
+
+var backgroundRefreshCancel map[string]context.CancelFunc = make(map[string]context.CancelFunc);
 
 // Config the plugin configuration.
 type Config struct {
@@ -164,7 +167,7 @@ type Response struct {
 }
 
 // New creates a new plugin
-func New(_ context.Context, next http.Handler, config *Config, _ string) (http.Handler, error) {
+func New(ctx context.Context, next http.Handler, config *Config, pluginName string) (http.Handler, error) {
 	jwtPlugin := &JwtPlugin{
 		httpClient:         &http.Client{},
 		next:               next,
@@ -189,16 +192,37 @@ func New(_ context.Context, next http.Handler, config *Config, _ string) (http.H
 			return nil, err
 		}
 		if len(jwtPlugin.jwkEndpoints) > 0 {
-			go jwtPlugin.BackgroundRefresh()
+			if backgroundRefreshCancel[pluginName] != nil {
+				logInfo(fmt.Sprintf("Cancel BackgroundRefresh %s", pluginName)).print()
+				backgroundRefreshCancel[pluginName]();
+			}
+			cancel, cancelFunc := context.WithCancel(ctx)
+			backgroundRefreshCancel[pluginName] = cancelFunc
+			b := make([]byte, 16)
+            _, err := rand.Read(b)
+			if err != nil {
+				return nil, err
+			}
+			identifier := fmt.Sprintf("%X", b)
+			logInfo(fmt.Sprintf("Created BackgroundRefresh %s %s", identifier, pluginName)).print()
+			go jwtPlugin.BackgroundRefresh(cancel, identifier)
 		}
 	}
 	return jwtPlugin, nil
 }
 
-func (jwtPlugin *JwtPlugin) BackgroundRefresh() {
+func (jwtPlugin *JwtPlugin) BackgroundRefresh(ctx context.Context, identifier string) {
 	for {
-		jwtPlugin.FetchKeys()
-		time.Sleep(15 * time.Minute) // 15 min
+		logInfo(fmt.Sprintf("Started BackgroundRefresh %s",identifier)).print()
+		select {
+		case <-ctx.Done():
+			logInfo(fmt.Sprintf("Ended BackgroundRefresh %s",identifier)).print()
+			return
+		default:
+			logInfo(fmt.Sprintf("Do BackgroundRefresh %s",identifier)).print()
+			jwtPlugin.FetchKeys()
+			time.Sleep(15 * time.Minute) // 15 min
+		}
 	}
 }
 
