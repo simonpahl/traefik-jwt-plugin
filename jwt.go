@@ -22,12 +22,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
-var backgroundRefreshCancel map[string]context.CancelFunc = make(map[string]context.CancelFunc);
+var backgroundRefreshCancel map[string]context.CancelFunc = make(map[string]context.CancelFunc)
 
 // Config the plugin configuration.
 type Config struct {
@@ -187,6 +188,9 @@ func New(ctx context.Context, next http.Handler, config *Config, pluginName stri
 		jwtCookieKey:       config.JwtCookieKey,
 		jwtQueryKey:        config.JwtQueryKey,
 	}
+	runtime.SetFinalizer(config, func(c *Config) {
+		logInfo(fmt.Sprintf("Finalized config %s", pluginName)).print()
+	})
 	if len(config.Keys) > 0 {
 		if err := jwtPlugin.ParseKeys(config.Keys); err != nil {
 			return nil, err
@@ -194,12 +198,12 @@ func New(ctx context.Context, next http.Handler, config *Config, pluginName stri
 		if len(jwtPlugin.jwkEndpoints) > 0 {
 			if backgroundRefreshCancel[pluginName] != nil {
 				logInfo(fmt.Sprintf("Cancel BackgroundRefresh %s", pluginName)).print()
-				backgroundRefreshCancel[pluginName]();
+				backgroundRefreshCancel[pluginName]()
 			}
 			cancel, cancelFunc := context.WithCancel(ctx)
 			backgroundRefreshCancel[pluginName] = cancelFunc
 			b := make([]byte, 16)
-            _, err := rand.Read(b)
+			_, err := rand.Read(b)
 			if err != nil {
 				return nil, err
 			}
@@ -213,13 +217,13 @@ func New(ctx context.Context, next http.Handler, config *Config, pluginName stri
 
 func (jwtPlugin *JwtPlugin) BackgroundRefresh(ctx context.Context, identifier string) {
 	for {
-		logInfo(fmt.Sprintf("Started BackgroundRefresh %s",identifier)).print()
+		logInfo(fmt.Sprintf("Started BackgroundRefresh %s", identifier)).print()
 		select {
 		case <-ctx.Done():
-			logInfo(fmt.Sprintf("Ended BackgroundRefresh %s",identifier)).print()
+			logInfo(fmt.Sprintf("Ended BackgroundRefresh %s", identifier)).print()
 			return
 		default:
-			logInfo(fmt.Sprintf("Do BackgroundRefresh %s",identifier)).print()
+			logInfo(fmt.Sprintf("Do BackgroundRefresh %s", identifier)).print()
 			jwtPlugin.FetchKeys()
 			time.Sleep(15 * time.Minute) // 15 min
 		}
