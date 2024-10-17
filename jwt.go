@@ -455,13 +455,14 @@ func (jwtPlugin *JwtPlugin) CheckToken(request *http.Request, rw http.ResponseWr
 				return 0, fmt.Errorf("payload missing required field %s", fieldName)
 			}
 			if fieldName == "exp" {
-				if expInt, err := strconv.ParseInt(fmt.Sprint(jwtToken.Payload["exp"]), 10, 64); err != nil || expInt < time.Now().Unix() {
-					logError("Token is expired").
+				timeNow := time.Now().Unix()
+				if expInt, err := strconv.ParseInt(fmt.Sprint(jwtToken.Payload["exp"]), 10, 64); err != nil || expInt < timeNow {
+					logError(fmt.Sprintf("Token is expired %d < %d", expInt, timeNow)).
 						withSub(sub).
 						withUrl(request.URL.String()).
 						withNetwork(jwtPlugin.remoteAddr(request)).
 						print()
-					return 0, fmt.Errorf("token is expired")
+					return 0, fmt.Errorf("token is expired %d < %d", expInt, timeNow)
 				}
 			} else if fieldName == "nbf" {
 				if nbfInt, err := strconv.ParseInt(fmt.Sprint(jwtToken.Payload["nbf"]), 10, 64); err != nil || nbfInt > time.Now().Add(1*time.Minute).Unix() {
